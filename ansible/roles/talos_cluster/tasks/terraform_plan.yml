@@ -1,0 +1,50 @@
+---
+# ==============================================================================
+# Terraform init + plan
+# Backend config is injected via a rendered HCL file (backend.hcl) rather
+# than backend_config map — this ensures booleans are passed as proper HCL
+# types, not strings, so skip_requesting_account_id and other flags take effect.
+#
+# Terraform >= 1.15.0: terraform validate now checks backend config, so the
+# community.general.terraform module (which runs validate before init) would
+# fail on an intentionally empty backend "s3" {} block. Fix: run init
+# explicitly first, then let the module plan with force_init disabled.
+# ==============================================================================
+
+- name: Terraform init (explicit, with backend config)
+  ansible.builtin.command:
+    cmd: terraform init -reconfigure -backend-config="{{ terraform_dir }}/backend.hcl" -no-color
+    chdir: "{{ terraform_dir }}"
+  environment:
+    VAULT_ADDR:  "{{ bao_addr }}"
+    VAULT_TOKEN: "{{ vault_bao_token }}"
+  register: tf_init_result
+  changed_when: "'Terraform has been successfully initialized' in tf_init_result.stdout"
+
+- name: Terraform plan
+  ansible.builtin.command:
+    cmd: terraform plan -out="{{ tfplan_path }}" -no-color
+    chdir: "{{ terraform_dir }}"
+  environment:
+    VAULT_ADDR:  "{{ bao_addr }}"
+    VAULT_TOKEN: "{{ vault_bao_token }}"
+  register: tf_plan_result
+  changed_when: "'No changes' not in tf_plan_result.stdout"
+
+- name: Show plan summary
+  ansible.builtin.debug:
+    msg: "{{ tf_plan_result.stdout_lines | select('match', '^Plan:|^No changes') | list }}"
+#    var: tf_plan_result.stdout_lines
+
+- name: Fail if plan contains destroys (safety check)
+  ansible.builtin.fail:
+    msg: >
+      Terraform plan contains resource destructions.
+      Review the plan manually before applying.
+      To bypass this check, run with -e tf_allow_destroy=true
+  when:
+    - not (tf_allow_destroy | default(false) | bool)
+    - tf_plan_result.stdout is defined
+    - >
+      'will be destroyed' in tf_plan_result.stdout or
+      'must be replaced' in tf_plan_result.stdout

@@ -1,0 +1,85 @@
+---
+# ==============================================================================
+# Deploy F5 NGINX Ingress Controller via Helm
+#
+# Uses the official nginxinc/nginx-ingress chart from https://helm.nginx.com/stable
+# The controller service is exposed as LoadBalancer — MetalLB assigns
+# an IP from the configured pool automatically.
+#
+# Helm repo: https://helm.nginx.com/stable
+# Chart:     nginx-ingress
+# Docs:      https://docs.nginx.com/nginx-ingress-controller/installation/installation-with-helm/
+# ==============================================================================
+
+- name: Create NGINX Ingress namespace
+  kubernetes.core.k8s:
+    kubeconfig: "{{ ansible_env.HOME }}/.kube/talos-dev.yaml"
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ nginx_namespace }}"
+
+- name: Add NGINX Ingress Helm repository
+  kubernetes.core.helm_repository:
+    binary_path: "{{ helm3_binary_path }}"
+    name:        nginx-stable
+    repo_url:    "{{ nginx_helm_repo }}"
+
+- name: Deploy NGINX Ingress Controller Helm chart
+  kubernetes.core.helm:
+    binary_path:       "{{ helm3_binary_path }}"
+    kubeconfig:        "{{ ansible_env.HOME }}/.kube/talos-dev.yaml"
+    name:              nginx-ingress
+    chart_ref:         "nginx-stable/{{ nginx_helm_chart }}"
+    chart_version:     "{{ nginx_helm_version }}"
+    release_namespace: "{{ nginx_namespace }}"
+    create_namespace:  false
+    wait:              true
+    wait_timeout:      10m
+    values:
+      controller:
+        service:
+          # Exposed via MetalLB — IP assigned automatically from the L2 pool.
+          type: LoadBalancer
+  register: nginx_deploy_result
+
+- name: Show NGINX Ingress deploy result
+  ansible.builtin.debug:
+    msg: "NGINX Ingress Controller {{ nginx_helm_version }} deployed to namespace {{ nginx_namespace }}"
+
+- name: Verify NGINX Ingress pods are running
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ ansible_env.HOME }}/.kube/talos-dev.yaml"
+    kind:       Pod
+    namespace:  "{{ nginx_namespace }}"
+  register: nginx_pods
+  until: >
+    nginx_pods.resources | length > 0 and
+    nginx_pods.resources | selectattr('status.phase', 'equalto', 'Running') | list | length ==
+    nginx_pods.resources | length
+  retries: 20
+  delay:   15
+
+- name: Show NGINX Ingress pod names
+  ansible.builtin.debug:
+    msg: "{{ nginx_pods.resources | map(attribute='metadata.name') | list }}"
+
+- name: Retrieve NGINX Ingress LoadBalancer IP
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ ansible_env.HOME }}/.kube/talos-dev.yaml"
+    kind:       Service
+    namespace:  "{{ nginx_namespace }}"
+    name:       nginx-ingress-controller
+  register: nginx_svc
+  until: >
+    nginx_svc.resources | length > 0 and
+    nginx_svc.resources[0].status.loadBalancer.ingress is defined and
+    nginx_svc.resources[0].status.loadBalancer.ingress | length > 0
+  retries: 20
+  delay:   10
+
+- name: Show NGINX Ingress LoadBalancer IP
+  ansible.builtin.debug:
+    msg: "NGINX Ingress LoadBalancer IP: {{ nginx_svc.resources[0].status.loadBalancer.ingress[0].ip }}"

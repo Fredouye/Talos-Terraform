@@ -1,0 +1,46 @@
+---
+# ==============================================================================
+# Talos cluster — destroy playbook
+#
+# Tears down all Terraform-managed resources (VMs, Rancher cluster, etc.).
+# Kept separate from playbook.yml to prevent accidental execution.
+#
+# Usage:
+#   ansible-playbook destroy.yml --ask-vault-pass -e tf_confirm_destroy=yes
+#
+# The -e tf_confirm_destroy=yes flag is mandatory — the playbook fails
+# immediately without it.
+# A manual confirmation pause is shown after the destroy plan before applying.
+# ==============================================================================
+
+- name: Destroy Talos cluster via Terraform
+  hosts: localhost
+  gather_facts: true
+
+  pre_tasks:
+    - name: Check terraform binary is available
+      ansible.builtin.command:
+        cmd: terraform version
+      register: tf_version
+      changed_when: false
+      failed_when: tf_version.rc != 0
+
+    - name: Show Terraform version
+      ansible.builtin.debug:
+        msg: "{{ tf_version.stdout_lines[0] }}"
+
+  tasks:
+    - name: Fetch secrets from OpenBao
+      ansible.builtin.include_tasks:
+        file: roles/talos_cluster/tasks/fetch_secrets.yml
+
+    - name: Generate backend.hcl
+      ansible.builtin.template:
+        src: templates/backend.hcl.j2
+        dest: "{{ terraform_dir }}/backend.hcl"
+        mode: "0600"
+      no_log: true
+
+    - name: Run Terraform destroy
+      ansible.builtin.include_tasks:
+        file: roles/talos_cluster/tasks/terraform_destroy.yml

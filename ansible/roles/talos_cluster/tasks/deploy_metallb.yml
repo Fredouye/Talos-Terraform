@@ -1,0 +1,100 @@
+---
+# ==============================================================================
+# Deploy MetalLB via Helm
+# Uses kubernetes.core.helm_repository and kubernetes.core.helm with
+# binary_path pointing to a Helm 3 binary — required because the modules
+# enforce a Helm <4.0.0 version check against the default helm binary.
+#
+# The speaker DaemonSet is restricted to worker nodes via nodeSelector
+# (node-role.kubernetes.io/worker) so it does not run on control planes.
+# ==============================================================================
+
+- name: Create MetalLB namespace
+  kubernetes.core.k8s:
+    kubeconfig: "{{ ansible_env.HOME }}/.kube/talos-dev.yaml"
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ metallb_namespace }}"
+        labels:
+          pod-security.kubernetes.io/enforce:         privileged
+          pod-security.kubernetes.io/enforce-version: latest
+          pod-security.kubernetes.io/audit:           privileged
+          pod-security.kubernetes.io/warn:            privileged
+
+- name: Add MetalLB Helm repository
+  kubernetes.core.helm_repository:
+    binary_path: "{{ helm3_binary_path }}"
+    name:        metallb
+    repo_url:    "{{ metallb_helm_repo }}"
+
+- name: Deploy MetalLB Helm chart
+  kubernetes.core.helm:
+    binary_path:       "{{ helm3_binary_path }}"
+    kubeconfig:        "{{ ansible_env.HOME }}/.kube/talos-dev.yaml"
+    name:              metallb
+    chart_ref:         "metallb/{{ metallb_helm_chart }}"
+    chart_version:     "{{ metallb_helm_version }}"
+    release_namespace: "{{ metallb_namespace }}"
+    create_namespace:  false
+    wait:              true
+    wait_timeout:      5m
+    values:
+      speaker:
+        # Restrict the speaker DaemonSet to worker nodes only.
+        # Control planes should not handle data plane traffic,
+        # and the FRR container is unhealthy there due to taints.
+        nodeSelector:
+          node-role.kubernetes.io/worker: ""
+  register: metallb_deploy_result
+
+- name: Show MetalLB deploy result
+  ansible.builtin.debug:
+    msg: "MetalLB {{ metallb_helm_version }} deployed to namespace {{ metallb_namespace }}"
+
+- name: Verify MetalLB pods are running
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ ansible_env.HOME }}/.kube/talos-dev.yaml"
+    kind:       Pod
+    namespace:  "{{ metallb_namespace }}"
+  register: metallb_pods
+  until: >
+    metallb_pods.resources | length > 0 and
+    metallb_pods.resources | selectattr('status.phase', 'equalto', 'Running') | list | length ==
+    metallb_pods.resources | length
+  retries: 20
+  delay:   15
+
+- name: Show MetalLB pod names
+  ansible.builtin.debug:
+    msg: "{{ metallb_pods.resources | map(attribute='metadata.name') | list }}"
+
+- name: Configure MetalLB IP address pool
+  kubernetes.core.k8s:
+    kubeconfig: "{{ ansible_env.HOME }}/.kube/talos-dev.yaml"
+    state: present
+    definition:
+      apiVersion: metallb.io/v1beta1
+      kind: IPAddressPool
+      metadata:
+        name: default
+        namespace: "{{ metallb_namespace }}"
+      spec:
+        addresses:
+          - "{{ metallb_ip_range }}"
+
+- name: Configure MetalLB L2 advertisement
+  kubernetes.core.k8s:
+    kubeconfig: "{{ ansible_env.HOME }}/.kube/talos-dev.yaml"
+    state: present
+    definition:
+      apiVersion: metallb.io/v1beta1
+      kind: L2Advertisement
+      metadata:
+        name: default
+        namespace: "{{ metallb_namespace }}"
+      spec:
+        ipAddressPools:
+          - default

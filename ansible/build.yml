@@ -1,0 +1,56 @@
+---
+# ==============================================================================
+# Talos cluster — full lifecycle playbook
+#
+# Usage:
+#   # Full run (generate tfvars, init, plan, apply, save outputs)
+#   ansible-playbook playbook.yml --ask-vault-pass
+#
+#   # Generate tfvars only
+#   ansible-playbook playbook.yml --ask-vault-pass --tags tfvars
+#
+#   # Skip apply (plan only)
+#   ansible-playbook playbook.yml --ask-vault-pass --skip-tags tf_apply,tf_outputs
+#
+#   # Allow resource destruction (default: blocked by safety check)
+#   ansible-playbook playbook.yml --ask-vault-pass -e tf_allow_destroy=true
+#
+#   # Save outputs to OpenBao only (cluster already deployed)
+#   ansible-playbook playbook.yml --ask-vault-pass --tags tf_outputs
+#
+# Requirements:
+#   pip install ansible
+#   ansible-galaxy collection install community.general community.hashi_vault
+#   terraform must be in PATH
+#   VAULT_TOKEN or vault_bao_token in vault.yml
+# ==============================================================================
+
+- name: Deploy Talos cluster via Terraform
+  hosts: localhost
+  gather_facts: true
+
+  pre_tasks:
+    - name: Check terraform binary is available
+      ansible.builtin.command:
+        cmd: terraform version
+      register: tf_version
+      changed_when: false
+      failed_when: tf_version.rc != 0
+
+#    - name: Show Terraform version
+#      ansible.builtin.debug:
+#        msg: "{{ tf_version.stdout_lines[0] }}"
+
+    - name: Check talosctl binary is available
+      ansible.builtin.command:
+        cmd: talosctl version --client
+      register: talosctl_version
+      changed_when: false
+      failed_when: false
+
+#    - name: Show talosctl version
+#      ansible.builtin.debug:
+#        msg: "{{ talosctl_version.stdout_lines[0] | default('talosctl not found — install it for post-deploy operations') }}"
+
+  roles:
+    - talos_cluster

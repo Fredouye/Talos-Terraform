@@ -1,0 +1,111 @@
+---
+# ==============================================================================
+# Terraform destroy — tears down all resources managed by this Terraform config.
+# Runs only from destroy.yml — never imported by main.yml.
+#
+# Safety checks:
+#   1. Requires explicit confirmation via -e tf_confirm_destroy=yes
+#   2. Shows the destroy plan and pauses for manual review before applying
+#
+# Post-destroy cleanup:
+#   - Removes kv/talos-dev/terraform-outputs from OpenBao
+#   - Deletes all objects under talos-dev/ prefix in the MinIO state bucket
+# ==============================================================================
+
+- name: Safety check — confirm destroy is intentional
+  ansible.builtin.fail:
+    msg: >
+      Destroy requires explicit confirmation.
+      Re-run with: -e tf_confirm_destroy=yes
+  when: tf_confirm_destroy | default('') != 'yes'
+
+- name: Terraform plan (destroy)
+  community.general.terraform:
+    project_path:         "{{ terraform_dir }}"
+    plan_file:            "{{ tfplan_path }}"
+    state:                planned
+    force_init:           true
+    backend_config_files: "{{ terraform_dir }}/backend.hcl"
+  environment:
+    VAULT_ADDR:  "{{ bao_addr }}"
+    VAULT_TOKEN: "{{ vault_bao_token }}"
+  register: tf_destroy_plan
+
+- name: Show destroy plan
+  ansible.builtin.debug:
+    var: tf_destroy_plan.stdout_lines
+
+- name: Pause for manual review before destroying
+  ansible.builtin.pause:
+    prompt: >
+      Review the destroy plan above.
+      Press ENTER to proceed with destruction, or Ctrl+C → A to abort.
+
+- name: Terraform destroy
+  community.general.terraform:
+    project_path: "{{ terraform_dir }}"
+    plan_file:    "{{ tfplan_path }}"
+    state:        absent
+  environment:
+    VAULT_ADDR:  "{{ bao_addr }}"
+    VAULT_TOKEN: "{{ vault_bao_token }}"
+  register: tf_destroy_result
+
+- name: Show destroy output
+  ansible.builtin.debug:
+    var: tf_destroy_result.stdout_lines
+
+- name: Clean up local plan file
+  ansible.builtin.file:
+    path: "{{ tfplan_path }}"
+    state: absent
+
+# ─── Post-destroy cleanup ─────────────────────────────────────────────────────
+
+- name: Delete Terraform outputs from OpenBao
+  community.hashi_vault.vault_kv2_delete:
+    url:                "{{ bao_addr }}"
+    auth_method:        token
+    token:              "{{ vault_bao_token }}"
+    engine_mount_point: kv
+    path:               "talos-dev/terraform-outputs"
+  ignore_errors: true
+
+# Delete all objects under the cluster state prefix in MinIO.
+# The prefix is the directory portion of minio_tf_key — e.g. "talos-dev/"
+# for a key of "talos-dev/terraform.tfstate".
+# Known objects under that prefix:
+#   talos-dev/terraform.tfstate
+#   talos-dev/terraform.tfstate.tflock  (if a lock file was left behind)
+
+- name: Delete Terraform state file from MinIO
+  amazon.aws.s3_object:
+    endpoint_url:   "{{ minio_endpoint }}"
+    access_key:     "{{ vault_minio_access_key }}"
+    secret_key:     "{{ vault_minio_secret_key }}"
+    bucket:         "{{ minio_tf_bucket }}"
+    object:         "{{ minio_tf_key }}"
+    mode:           delobj
+    validate_certs: false
+  no_log: true
+  ignore_errors: true
+
+- name: Delete Terraform state lock file from MinIO (if present)
+  amazon.aws.s3_object:
+    endpoint_url:   "{{ minio_endpoint }}"
+    access_key:     "{{ vault_minio_access_key }}"
+    secret_key:     "{{ vault_minio_secret_key }}"
+    bucket:         "{{ minio_tf_bucket }}"
+    object:         "{{ minio_tf_key }}.tflock"
+    mode:           delobj
+    validate_certs: false
+  no_log: true
+  ignore_errors: true
+
+- name: Confirm post-destroy cleanup complete
+  ansible.builtin.debug:
+    msg:
+      - "Terraform resources destroyed."
+      - "OpenBao outputs removed: kv/talos-dev/terraform-outputs"
+      - "MinIO state removed: {{ minio_tf_bucket }}/{{ minio_tf_key }}"
+

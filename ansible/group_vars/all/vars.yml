@@ -1,0 +1,103 @@
+---
+# ==============================================================================
+# Talos cluster — non-sensitive configuration
+# Secrets are in vault.yml (ansible-vault encrypted)
+# ==============================================================================
+
+# ─── Paths ────────────────────────────────────────────────────────────────────
+terraform_dir: "{{ playbook_dir }}/../terraform"
+tfvars_path:   "{{ terraform_dir }}/terraform.tfvars"
+tfplan_path:   "{{ terraform_dir }}/tfplan"
+
+# ─── vSphere ──────────────────────────────────────────────────────────────────
+# vsphere_user and vsphere_password are fetched from OpenBao by Terraform.
+# Store with: bao kv put kv/talos-dev/vsphere username=... password=...
+vsphere_server:     "vcenter.lab.intra"
+vsphere_datacenter: "lab.intra"
+vsphere_cluster:    "lab.intra"
+vsphere_datastore:  "SATA"
+vsphere_network:    "VM_10g"
+vsphere_folder:     "Permanent/Talos"
+
+# ─── Templates ────────────────────────────────────────────────────────────────
+vsphere_template_cp:     "talos-v1.12.2-cp-amd64"
+vsphere_template_worker: "talos-v1.12.2-worker-amd64"
+
+# ─── Networking ───────────────────────────────────────────────────────────────
+gateway:      "192.168.3.254"
+dns_servers:  ["192.168.3.254"]
+ntp_servers:  ["192.168.3.254"]
+node_netmask: 24
+nic_mac_prefix: "00:50:56:*"
+
+cluster_vip: "192.168.3.40"
+control_plane_ips:
+  - "192.168.3.41"
+  - "192.168.3.42"
+  - "192.168.3.43"
+worker_ips:
+  - "192.168.3.44"
+  - "192.168.3.45"
+  - "192.168.3.46"
+
+# ─── Cluster ──────────────────────────────────────────────────────────────────
+cluster_name:       "talos-dev"
+talos_version:      "v1.12.2"
+kubernetes_version: "v1.34.1"
+
+# ─── Talos Image Factory — system extensions ──────────────────────────────────
+# Schematic IDs are generated at runtime by the generate_schematics task.
+# Add or remove extensions here; the IDs will be recomputed automatically.
+cp_extensions:
+  - siderolabs/vmtoolsd-guest-agent
+
+worker_extensions:
+  - siderolabs/vmtoolsd-guest-agent
+  - siderolabs/iscsi-tools
+  - siderolabs/util-linux-tools
+
+# ─── VM sizing ────────────────────────────────────────────────────────────────
+cp_cpu:        2
+cp_memory:     4096
+cp_disk_gb:    40
+
+worker_cpu:        4
+worker_memory:     8192
+worker_disk_gb:    80
+longhorn_disk_gb:  100
+
+# ─── Rancher ──────────────────────────────────────────────────────────────────
+rancher_url: "https://rancher.lab.intra"
+
+# ─── OpenBao / Vault — where to save Terraform outputs ────────────────────────
+bao_addr:          "https://openbao.lab.intra"
+bao_outputs_path:  "kv/data/talos-dev/terraform-outputs"
+
+# ─── MinIO — Terraform S3 backend ─────────────────────────────────────────────
+minio_endpoint:              "https://s3.lab.intra"
+minio_tf_bucket:             "terraform-state"
+minio_tf_key:                "talos-dev/terraform.tfstate"
+minio_tf_workspace_prefix:   "workspace"
+
+# Helm
+helm3_binary_path:    "~/bin/helm3"
+
+# ─── MetalLB ──────────────────────────────────────────────────────────────────
+metallb_helm_repo:    "https://metallb.github.io/metallb"
+metallb_helm_chart:   "metallb"
+metallb_helm_version: "0.15.3"
+metallb_namespace:    "metallb-system"
+metallb_ip_range:     "192.168.3.90-192.168.3.95"
+
+# ─── ArgoCD ───────────────────────────────────────────────────────────────────
+argocd_helm_repo:    "https://argoproj.github.io/argo-helm"
+argocd_helm_chart:   "argo-cd"
+argocd_helm_version: "9.4.17"
+argocd_namespace:    "argocd"
+
+
+# ─── NGINX Ingress Controller (F5 / nginxinc) ─────────────────────────────────
+nginx_helm_repo:    "https://helm.nginx.com/stable"
+nginx_helm_chart:   "nginx-ingress"
+nginx_helm_version: "2.5.1"
+nginx_namespace:    "nginx-ingress"

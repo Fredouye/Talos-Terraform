@@ -1,0 +1,30 @@
+---
+# ==============================================================================
+# Generate terraform.tfvars from Jinja2 template
+# ==============================================================================
+
+- name: Ensure Terraform directory exists
+  ansible.builtin.file:
+    path: "{{ terraform_dir }}"
+    state: directory
+    mode: "0750"
+
+- name: Render terraform.tfvars
+  ansible.builtin.template:
+    src: terraform.tfvars.j2
+    dest: "{{ tfvars_path }}"
+    mode: "0600"
+  no_log: true
+
+- name: Render backend.hcl
+  ansible.builtin.template:
+    src: backend.hcl.j2
+    dest: "{{ terraform_dir }}/backend.hcl"
+    mode: "0600"   # contains MinIO credentials
+  no_log: true
+
+#- name: Confirm files written
+#  ansible.builtin.debug:
+#    msg:
+#      - "terraform.tfvars → {{ tfvars_path }}"
+#      - "backend.hcl      → {{ terraform_dir }}/backend.hcl"

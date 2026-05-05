@@ -1,0 +1,38 @@
+---
+# ==============================================================================
+# Terraform apply — uses the saved plan file from the plan step.
+# The S3 backend config was already initialised during the plan step via
+# backend_config — apply reuses the cached .terraform directory, so no
+# backend credentials are needed here.
+# ==============================================================================
+
+- name: Terraform apply
+  ansible.builtin.command:
+    cmd: terraform apply -auto-approve -no-color "{{ tfplan_path }}"
+    chdir: "{{ terraform_dir }}"
+  environment:
+    VAULT_ADDR:  "{{ bao_addr }}"
+    VAULT_TOKEN: "{{ vault_bao_token }}"
+  register: tf_apply_result
+  async: 1800
+  poll: 15
+
+#- name: Show apply output
+#  ansible.builtin.debug:
+#    var: tf_apply_result.stdout_lines
+
+- name: Retrieve Terraform outputs as JSON
+  ansible.builtin.command:
+    cmd: terraform output -json
+    chdir: "{{ terraform_dir }}"
+  register: tf_output_raw
+  changed_when: false
+
+- name: Parse Terraform outputs
+  ansible.builtin.set_fact:
+    tf_outputs: "{{ tf_output_raw.stdout | from_json }}"
+
+- name: Clean up plan file
+  ansible.builtin.file:
+    path: "{{ tfplan_path }}"
+    state: absent

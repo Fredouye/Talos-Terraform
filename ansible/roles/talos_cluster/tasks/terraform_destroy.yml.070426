@@ -1,0 +1,61 @@
+---
+# ==============================================================================
+# Terraform destroy — tears down all resources managed by this Terraform config.
+# Runs only from destroy.yml — never imported by main.yml.
+#
+# Safety checks:
+#   1. Requires explicit confirmation via -e tf_confirm_destroy=yes
+#   2. Shows the destroy plan and pauses for manual review before applying
+# ==============================================================================
+
+- name: Safety check — confirm destroy is intentional
+  ansible.builtin.fail:
+    msg: >
+      Destroy requires explicit confirmation.
+      Re-run with: -e tf_confirm_destroy=yes
+  when: tf_confirm_destroy | default('') != 'yes'
+
+- name: Terraform plan (destroy)
+  community.general.terraform:
+    project_path:         "{{ terraform_dir }}"
+    plan_file:            "{{ tfplan_path }}"
+    state:                planned
+    force_init:           true
+    backend_config_files: "{{ terraform_dir }}/backend.hcl"
+  environment:
+    VAULT_ADDR:  "{{ bao_addr }}"
+    VAULT_TOKEN: "{{ vault_bao_token }}"
+  register: tf_destroy_plan
+
+- name: Show destroy plan
+  ansible.builtin.debug:
+    var: tf_destroy_plan.stdout_lines
+
+- name: Pause for manual review before destroying
+  ansible.builtin.pause:
+    prompt: >
+      Review the destroy plan above.
+      Press ENTER to proceed with destruction, or Ctrl+C → A to abort.
+
+- name: Terraform destroy
+  community.general.terraform:
+    project_path: "{{ terraform_dir }}"
+    plan_file:    "{{ tfplan_path }}"
+    state:        absent
+  environment:
+    VAULT_ADDR:  "{{ bao_addr }}"
+    VAULT_TOKEN: "{{ vault_bao_token }}"
+  register: tf_destroy_result
+
+- name: Show destroy output
+  ansible.builtin.debug:
+    var: tf_destroy_result.stdout_lines
+
+- name: Clean up plan file
+  ansible.builtin.file:
+    path: "{{ tfplan_path }}"
+    state: absent
+
+- name: Confirm destruction complete
+  ansible.builtin.debug:
+    msg: "All Terraform-managed resources have been destroyed."

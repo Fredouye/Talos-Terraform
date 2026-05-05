@@ -1,0 +1,44 @@
+---
+# ==============================================================================
+# talos_cluster role — task orchestrator
+# ==============================================================================
+
+- name: Fetch secrets from OpenBao
+  ansible.builtin.import_tasks: fetch_secrets.yml
+  tags: [talos, secrets]
+
+- name: Generate Talos schematic IDs
+  ansible.builtin.import_tasks: generate_schematics.yml
+  tags: [talos, schematics]
+
+- name: Upload OVA templates to vCenter
+  ansible.builtin.import_tasks: upload_ova.yml
+  tags: [talos, ova]
+
+- name: Generate terraform.tfvars and backend.hcl
+  ansible.builtin.import_tasks: generate_tfvars.yml
+  tags: [talos, tfvars]
+
+- name: Terraform init + plan
+  ansible.builtin.import_tasks: terraform_plan.yml
+  tags: [talos, tf_init, tf_plan]
+
+- name: Terraform apply
+  ansible.builtin.import_tasks: terraform_apply.yml
+  tags: [talos, tf_apply]
+
+- name: Save Terraform outputs to OpenBao
+  ansible.builtin.import_tasks: save_outputs.yml
+  tags: [talos, tf_outputs]
+
+- name: Deploy MetalLB
+  ansible.builtin.import_tasks: deploy_metallb.yml
+  tags: [talos, metallb]
+
+- name: Deploy ArgoCD
+  ansible.builtin.import_tasks: deploy_argocd.yml
+  tags: [talos, argocd]
+
+- name: Deploy F5 NGINX Ingress Controller
+  ansible.builtin.import_tasks: deploy_nginx_ingress.yml
+  tags: [talos, nginx]

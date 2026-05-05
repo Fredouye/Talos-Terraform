@@ -1,0 +1,44 @@
+---
+# ==============================================================================
+# Generate Talos schematic IDs from Image Factory
+# Control planes and workers use different extension sets.
+# Schematic IDs are content-addressable — same extensions always produce the
+# same ID, so this is idempotent and safe to run on every playbook execution.
+# ==============================================================================
+
+- name: Generate CP schematic ID
+  ansible.builtin.uri:
+    url: "https://factory.talos.dev/schematics"
+    method: POST
+    body_format: json
+    body:
+      customization:
+        systemExtensions:
+          officialExtensions: "{{ cp_extensions }}"
+    return_content: true
+    status_code: 201
+  register: cp_schematic_result
+
+- name: Generate worker schematic ID
+  ansible.builtin.uri:
+    url: "https://factory.talos.dev/schematics"
+    method: POST
+    body_format: json
+    body:
+      customization:
+        systemExtensions:
+          officialExtensions: "{{ worker_extensions }}"
+    return_content: true
+    status_code: 201
+  register: worker_schematic_result
+
+- name: Set schematic ID facts
+  ansible.builtin.set_fact:
+    cp_schematic_id:     "{{ cp_schematic_result.json.id }}"
+    worker_schematic_id: "{{ worker_schematic_result.json.id }}"
+
+#- name: Show schematic IDs
+#  ansible.builtin.debug:
+#    msg:
+#      - "CP schematic ID:     {{ cp_schematic_id }}"
+#      - "Worker schematic ID: {{ worker_schematic_id }}"

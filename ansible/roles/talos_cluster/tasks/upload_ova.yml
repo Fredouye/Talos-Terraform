@@ -1,0 +1,181 @@
+---
+# ==============================================================================
+# Upload Talos OVA templates to vCenter
+#
+# Runs after generate_schematics so cp_schematic_id / worker_schematic_id
+# facts are already set. Checks if both templates already exist in vCenter
+# before downloading — idempotent, safe to run on every deployment.
+#
+# Uses community.vmware modules:
+#   vmware_guest_info   — check if template exists
+#   vmware_deploy_ovf   — deploy OVA to vCenter
+#   vmware_guest        — mark VM as template
+#
+# Install: ansible-galaxy collection install community.vmware
+# Requires: pip install pyVmomi --break-system-packages
+# ==============================================================================
+
+# ─── Check if templates already exist ─────────────────────────────────────────
+
+- name: Check if CP template already exists in vCenter
+  community.vmware.vmware_guest_info:
+    hostname:       "{{ vsphere_server }}"
+    username:       "{{ vault_vsphere_username }}"
+    password:       "{{ vault_vsphere_password }}"
+    validate_certs: false
+    datacenter:     "{{ vsphere_datacenter }}"
+    name:           "{{ vsphere_template_cp }}"
+  register: cp_template_check
+  failed_when: false
+  no_log: true
+
+- name: Check if worker template already exists in vCenter
+  community.vmware.vmware_guest_info:
+    hostname:       "{{ vsphere_server }}"
+    username:       "{{ vault_vsphere_username }}"
+    password:       "{{ vault_vsphere_password }}"
+    validate_certs: false
+    datacenter:     "{{ vsphere_datacenter }}"
+    name:           "{{ vsphere_template_worker }}"
+  register: worker_template_check
+  failed_when: false
+  no_log: true
+
+- name: Show template status
+  ansible.builtin.debug:
+    msg:
+      - "CP template '{{ vsphere_template_cp }}': {{ 'already exists' if cp_template_check.instance is defined else 'not found — will upload' }}"
+      - "Worker template '{{ vsphere_template_worker }}': {{ 'already exists' if worker_template_check.instance is defined else 'not found — will upload' }}"
+
+# ─── Create temp directory (only if at least one template is missing) ─────────
+
+- name: Create temporary directory for OVAs
+  ansible.builtin.tempfile:
+    state: directory
+    suffix: "temp_ova"
+  register: ova_tempdir
+  when: >
+    cp_template_check.instance is not defined or
+    worker_template_check.instance is not defined
+
+# ─── Download and upload CP OVA ───────────────────────────────────────────────
+
+- name: Download CP OVA from Image Factory
+  ansible.builtin.get_url:
+    url:  "https://factory.talos.dev/image/{{ cp_schematic_id }}/{{ talos_version }}/vmware-amd64.ova"
+    dest: "{{ ova_tempdir.path }}/{{ vsphere_template_cp }}.ova"
+    mode: "0644"
+  when: cp_template_check.instance is not defined
+
+- name: Verify CP OVA file is valid (must be a tar archive > 10MB)
+  ansible.builtin.stat:
+    path: "{{ ova_tempdir.path }}/{{ vsphere_template_cp }}.ova"
+  register: cp_ova_stat
+  when: cp_template_check.instance is not defined
+
+- name: Fail if CP OVA looks invalid
+  ansible.builtin.fail:
+    msg: >
+      CP OVA file is too small ({{ cp_ova_stat.stat.size }} bytes) —
+      the download likely failed or returned an error page.
+      Check that the schematic ID and Talos version are correct.
+  when:
+    - cp_template_check.instance is not defined
+    - cp_ova_stat.stat.size < 10000000
+
+- name: Deploy CP OVA to vCenter
+  community.vmware.vmware_deploy_ovf:
+    hostname:       "{{ vsphere_server }}"
+    username:       "{{ vault_vsphere_username }}"
+    password:       "{{ vault_vsphere_password }}"
+    validate_certs: false
+    datacenter:     "{{ vsphere_datacenter }}"
+    cluster:        "{{ vsphere_cluster }}"
+    datastore:      "{{ vsphere_datastore }}"
+    folder:         "{{ vsphere_datacenter }}/vm/Templates"
+    ovf:            "{{ ova_tempdir.path }}/{{ vsphere_template_cp }}.ova"
+    name:           "{{ vsphere_template_cp }}"
+    power_on:       false
+    networks:
+      "VM Network": "{{ vsphere_network }}"
+  when: cp_template_check.instance is not defined
+  no_log: true
+
+- name: Mark CP VM as template
+  community.vmware.vmware_guest:
+    hostname:       "{{ vsphere_server }}"
+    username:       "{{ vault_vsphere_username }}"
+    password:       "{{ vault_vsphere_password }}"
+    validate_certs: false
+    datacenter:     "{{ vsphere_datacenter }}"
+    name:           "{{ vsphere_template_cp }}"
+    is_template:    true
+  when: cp_template_check.instance is not defined
+
+# ─── Download and upload worker OVA ──────────────────────────────────────────
+
+- name: Download worker OVA from Image Factory
+  ansible.builtin.get_url:
+    url:  "https://factory.talos.dev/image/{{ worker_schematic_id }}/{{ talos_version }}/vmware-amd64.ova"
+    dest: "{{ ova_tempdir.path }}/{{ vsphere_template_worker }}.ova"
+    mode: "0644"
+  when: worker_template_check.instance is not defined
+
+- name: Verify worker OVA file is valid (must be a tar archive > 10MB)
+  ansible.builtin.stat:
+    path: "{{ ova_tempdir.path }}/{{ vsphere_template_worker }}.ova"
+  register: worker_ova_stat
+  when: worker_template_check.instance is not defined
+
+- name: Fail if worker OVA looks invalid
+  ansible.builtin.fail:
+    msg: >
+      Worker OVA file is too small ({{ worker_ova_stat.stat.size }} bytes) —
+      the download likely failed or returned an error page.
+      Check that the schematic ID and Talos version are correct.
+  when:
+    - worker_template_check.instance is not defined
+    - worker_ova_stat.stat.size < 10000000
+
+- name: Deploy worker OVA to vCenter
+  community.vmware.vmware_deploy_ovf:
+    hostname:       "{{ vsphere_server }}"
+    username:       "{{ vault_vsphere_username }}"
+    password:       "{{ vault_vsphere_password }}"
+    validate_certs: false
+    datacenter:     "{{ vsphere_datacenter }}"
+    cluster:        "{{ vsphere_cluster }}"
+    datastore:      "{{ vsphere_datastore }}"
+    folder:         "{{ vsphere_datacenter }}/vm/Templates"
+    ovf:            "{{ ova_tempdir.path }}/{{ vsphere_template_worker }}.ova"
+    name:           "{{ vsphere_template_worker }}"
+    power_on:       false
+    networks:
+      "VM Network": "{{ vsphere_network }}"
+  when: worker_template_check.instance is not defined
+  no_log: true
+
+- name: Mark worker VM as template
+  community.vmware.vmware_guest:
+    hostname:       "{{ vsphere_server }}"
+    username:       "{{ vault_vsphere_username }}"
+    password:       "{{ vault_vsphere_password }}"
+    validate_certs: false
+    datacenter:     "{{ vsphere_datacenter }}"
+    name:           "{{ vsphere_template_worker }}"
+    is_template:    true
+  when: worker_template_check.instance is not defined
+
+# ─── Cleanup ──────────────────────────────────────────────────────────────────
+
+- name: Remove temporary OVA directory
+  ansible.builtin.file:
+    path:  "{{ ova_tempdir.path }}"
+    state: absent
+  when: ova_tempdir.path is defined
+
+- name: Confirm OVA upload complete
+  ansible.builtin.debug:
+    msg:
+      - "CP template ready:     {{ vsphere_template_cp }}"
+      - "Worker template ready: {{ vsphere_template_worker }}"

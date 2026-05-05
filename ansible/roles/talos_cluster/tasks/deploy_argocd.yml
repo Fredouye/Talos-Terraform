@@ -1,0 +1,76 @@
+---
+# ==============================================================================
+# Deploy ArgoCD via Helm (official argo-helm chart, default values)
+# Uses kubernetes.core.helm_repository and kubernetes.core.helm with
+# binary_path pointing to a Helm 3 binary — required because the modules
+# enforce a Helm <4.0.0 version check against the default helm binary.
+# ==============================================================================
+
+- name: Create ArgoCD namespace
+  kubernetes.core.k8s:
+    kubeconfig: "{{ ansible_env.HOME }}/.kube/talos-dev.yaml"
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ argocd_namespace }}"
+
+- name: Add ArgoCD Helm repository
+  kubernetes.core.helm_repository:
+    binary_path: "{{ helm3_binary_path }}"
+    name:        argo
+    repo_url:    "{{ argocd_helm_repo }}"
+
+- name: Deploy ArgoCD Helm chart
+  kubernetes.core.helm:
+    binary_path:       "{{ helm3_binary_path }}"
+    kubeconfig:        "{{ ansible_env.HOME }}/.kube/talos-dev.yaml"
+    name:              argocd
+    chart_ref:         "argo/{{ argocd_helm_chart }}"
+    chart_version:     "{{ argocd_helm_version }}"
+    release_namespace: "{{ argocd_namespace }}"
+    create_namespace:  false
+    wait:              true
+    wait_timeout:      10m
+    values:
+      server:
+        insecure: true
+  register: argocd_deploy_result
+
+- name: Show ArgoCD deploy result
+  ansible.builtin.debug:
+    msg: "ArgoCD {{ argocd_helm_version }} deployed to namespace {{ argocd_namespace }}"
+
+- name: Verify ArgoCD pods are running
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ ansible_env.HOME }}/.kube/talos-dev.yaml"
+    kind:       Pod
+    namespace:  "{{ argocd_namespace }}"
+  register: argocd_pods
+  until: >
+    argocd_pods.resources | length > 0 and
+    argocd_pods.resources | selectattr('status.phase', 'equalto', 'Running') | list | length ==
+    argocd_pods.resources | length
+  retries: 30
+  delay:   15
+
+- name: Show ArgoCD pod names
+  ansible.builtin.debug:
+    msg: "{{ argocd_pods.resources | map(attribute='metadata.name') | list }}"
+
+- name: Retrieve ArgoCD initial admin password
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ ansible_env.HOME }}/.kube/talos-dev.yaml"
+    kind:       Secret
+    namespace:  "{{ argocd_namespace }}"
+    name:       argocd-initial-admin-secret
+  register: argocd_secret
+  no_log: true
+
+- name: Show ArgoCD initial admin password
+  ansible.builtin.debug:
+    msg: "ArgoCD initial admin password: {{ argocd_secret.resources[0].data.password | b64decode }}"
+  when: argocd_secret.resources | length > 0
+  no_log: false
+

@@ -1,0 +1,60 @@
+---
+# ==============================================================================
+# Save Terraform outputs to OpenBao KV v2
+# talosconfig and kubeconfig are sensitive — stored with no_log
+# ==============================================================================
+
+- name: Retrieve Terraform outputs if apply was skipped
+  ansible.builtin.command:
+    cmd: terraform output -json
+    chdir: "{{ terraform_dir }}"
+  register: tf_output_raw
+  changed_when: false
+  when: tf_outputs is not defined
+
+- name: Parse outputs
+  ansible.builtin.set_fact:
+    tf_outputs: "{{ tf_output_raw.stdout | from_json }}"
+  when: tf_outputs is not defined
+
+- name: Save outputs to OpenBao KV v2
+  community.hashi_vault.vault_kv2_write:
+    url:       "{{ bao_addr }}"
+    auth_method: token
+    token:     "{{ vault_bao_token }}"
+    engine_mount_point: kv
+    path:      "talos-dev/terraform-outputs"
+    data:
+      talosconfig:         "{{ tf_outputs.talosconfig.value }}"
+      kubeconfig:          "{{ tf_outputs.kubeconfig.value }}"
+      cluster_vip:         "{{ tf_outputs.cluster_vip.value }}"
+      control_plane_ips:   "{{ tf_outputs.control_plane_ips.value | join(',') }}"
+      worker_ips:          "{{ tf_outputs.worker_ips.value | join(',') }}"
+      rancher_cluster_id:  "{{ tf_outputs.rancher_cluster_id.value }}"
+      cp_schematic_id:     "{{ tf_outputs.cp_schematic_id.value }}"
+      worker_schematic_id: "{{ tf_outputs.worker_schematic_id.value }}"
+  no_log: true
+
+#- name: Confirm outputs saved
+#  ansible.builtin.debug:
+#    msg: "Terraform outputs saved to OpenBao at {{ bao_addr }} → kv/talos-dev/terraform-outputs"
+
+- name: Write talosconfig to ~/.talos/config
+  ansible.builtin.copy:
+    content: "{{ tf_outputs.talosconfig.value }}"
+    dest: "{{ ansible_env.HOME }}/.talos/config"
+    mode: "0600"
+  no_log: true
+
+- name: Write kubeconfig to ~/.kube/talos-dev.yaml
+  ansible.builtin.copy:
+    content: "{{ tf_outputs.kubeconfig.value }}"
+    dest: "{{ ansible_env.HOME }}/.kube/talos-dev.yaml"
+    mode: "0600"
+  no_log: true
+
+- name: Confirm local credentials written
+  ansible.builtin.debug:
+    msg:
+      - "talosconfig → ~/.talos/config"
+      - "kubeconfig  → ~/.kube/talos-dev.yaml"
