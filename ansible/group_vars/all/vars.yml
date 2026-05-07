@@ -101,3 +101,10 @@ nginx_helm_repo:    "https://helm.nginx.com/stable"
 nginx_helm_chart:   "nginx-ingress"
 nginx_helm_version: "2.5.1"
 nginx_namespace:    "nginx-ingress"
+
+# ─── cert-manager ─────────────────────────────────────────────────────────────
+# Check latest: helm search repo jetstack/cert-manager --versions | head -5
+cert_manager_helm_repo:    "https://charts.jetstack.io"
+cert_manager_helm_chart:   "cert-manager"
+cert_manager_helm_version: "v1.16.3"
+cert_manager_namespace:    "cert-manager"

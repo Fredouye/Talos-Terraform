@@ -1,0 +1,58 @@
+---
+# ==============================================================================
+# Deploy cert-manager via Helm (Jetstack official chart)
+# CRDs are installed by the chart itself (crds.enabled: true — required since v1.16).
+# ==============================================================================
+
+- name: Create cert-manager namespace
+  kubernetes.core.k8s:
+    kubeconfig: "{{ ansible_env.HOME }}/.kube/talos-dev.yaml"
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ cert_manager_namespace }}"
+
+- name: Add cert-manager Helm repository
+  kubernetes.core.helm_repository:
+    binary_path: "{{ helm3_binary_path }}"
+    name:        jetstack
+    repo_url:    "{{ cert_manager_helm_repo }}"
+
+- name: Deploy cert-manager Helm chart
+  kubernetes.core.helm:
+    binary_path:       "{{ helm3_binary_path }}"
+    kubeconfig:        "{{ ansible_env.HOME }}/.kube/talos-dev.yaml"
+    name:              cert-manager
+    chart_ref:         "jetstack/{{ cert_manager_helm_chart }}"
+    chart_version:     "{{ cert_manager_helm_version }}"
+    release_namespace: "{{ cert_manager_namespace }}"
+    create_namespace:  false
+    wait:              true
+    wait_timeout:      5m
+    values:
+      crds:
+        enabled: true
+  register: cert_manager_deploy_result
+
+- name: Show cert-manager deploy result
+  ansible.builtin.debug:
+    msg: "cert-manager {{ cert_manager_helm_version }} deployed to namespace {{ cert_manager_namespace }}"
+
+- name: Verify cert-manager pods are running
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ ansible_env.HOME }}/.kube/talos-dev.yaml"
+    kind:       Pod
+    namespace:  "{{ cert_manager_namespace }}"
+  register: cert_manager_pods
+  until: >
+    cert_manager_pods.resources | length > 0 and
+    cert_manager_pods.resources | selectattr('status.phase', 'equalto', 'Running') | list | length ==
+    cert_manager_pods.resources | length
+  retries: 20
+  delay:   15
+
+- name: Show cert-manager pod names
+  ansible.builtin.debug:
+    msg: "{{ cert_manager_pods.resources | map(attribute='metadata.name') | list }}"

@@ -42,3 +42,7 @@
 - name: Deploy F5 NGINX Ingress Controller
   ansible.builtin.import_tasks: deploy_nginx_ingress.yml
   tags: [talos, nginx]
+
+- name: Deploy cert-manager
+  ansible.builtin.import_tasks: deploy_cert_manager.yml
+  tags: [talos, cert_manager]
