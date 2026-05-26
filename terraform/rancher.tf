@@ -19,7 +19,7 @@ provider "kubernetes" {
 
 resource "rancher2_cluster" "talos_lab" {
   name        = var.cluster_name
-  description = "Talos Linux ${var.talos_version} / K8s ${var.kubernetes_version} on vSphere"
+  description = "Talos Linux on vSphere"
 
   lifecycle {
     ignore_changes = [description]
