@@ -84,6 +84,16 @@ variable "nic_mac_prefix" {
   default = "00:50:56:*"
 }
 
+variable "control_plane_macs" {
+  type    = list(string)
+  default = ["00:50:56:3F:12:00", "00:50:56:3F:12:01", "00:50:56:3F:12:02"]
+}
+
+variable "worker_macs" {
+  type    = list(string)
+  default = ["00:50:56:3F:12:03", "00:50:56:3F:12:04", "00:50:56:3F:12:05"]
+}
+
 # Cluster
 variable "cluster_name" {
   type    = string
