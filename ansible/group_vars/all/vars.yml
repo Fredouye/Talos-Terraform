@@ -16,7 +16,7 @@ vsphere_server:     "vcenter.lab.intra"
 vsphere_datacenter: "lab.intra"
 vsphere_cluster:    "lab.intra"
 vsphere_datastore:  "SATA"
-vsphere_network:    "VM_10g"
+vsphere_network:    "VM_1g"
 vsphere_folder:     "Permanent/Talos"
 
 # ─── Templates ────────────────────────────────────────────────────────────────
