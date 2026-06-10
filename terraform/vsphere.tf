@@ -73,7 +73,7 @@ resource "vsphere_virtual_machine" "control_planes" {
     network_id     = data.vsphere_network.net.id
     adapter_type   = data.vsphere_virtual_machine.template_cp.network_interface_types[0]
     use_static_mac = true
-    mac_address    = var.control_plane_macs[count.index]
+    mac_address    = local.control_plane_macs[count.index]
   }
 
   disk {
@@ -129,7 +129,7 @@ resource "vsphere_virtual_machine" "workers" {
     network_id     = data.vsphere_network.net.id
     adapter_type   = data.vsphere_virtual_machine.template_worker.network_interface_types[0]
     use_static_mac = true
-    mac_address    = var.worker_macs[count.index]
+    mac_address    = local.worker_macs[count.index]
   }
 
   disk {

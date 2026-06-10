@@ -84,14 +84,28 @@ variable "nic_mac_prefix" {
   default = "00:50:56:*"
 }
 
-variable "control_plane_macs" {
-  type    = list(string)
-  default = ["00:50:56:3F:12:00", "00:50:56:3F:12:01", "00:50:56:3F:12:02"]
-}
+# MAC addresses are computed deterministically from the cluster name so that
+# each cluster gets a unique, collision-resistant set without manual assignment.
+# VMware manual MAC range: 00:50:56:00:00:00 – 00:50:56:3F:FF:FF.
+locals {
+  _mac_hash = md5(var.cluster_name)
+  _mac_byte4 = parseint(substr(local._mac_hash, 0, 2), 16) % 64 # 00-3F
+  _mac_byte5 = parseint(substr(local._mac_hash, 2, 2), 16)
 
-variable "worker_macs" {
-  type    = list(string)
-  default = ["00:50:56:3F:12:03", "00:50:56:3F:12:04", "00:50:56:3F:12:05"]
+  control_plane_macs = [
+    for i in range(length(var.control_plane_ips)) : format("00:50:56:%02X:%02X:%02X",
+      local._mac_byte4,
+      local._mac_byte5,
+      i
+    )
+  ]
+  worker_macs = [
+    for i in range(length(var.worker_ips)) : format("00:50:56:%02X:%02X:%02X",
+      local._mac_byte4,
+      local._mac_byte5,
+      length(var.control_plane_ips) + i
+    )
+  ]
 }
 
 # Cluster
