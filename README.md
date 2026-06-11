@@ -170,6 +170,40 @@ Le playbook affiche le plan de destruction et demande une confirmation manuelle 
 - 3 workers : `192.168.3.44–46`
 - Pool LoadBalancer MetalLB : `192.168.3.90–95`
 
+## Adresses MAC des VMs
+
+Les adresses MAC sont générées **de façon déterministe** à partir du nom du cluster, ce qui garantit des adresses uniques et stables sans assignation manuelle.
+
+### Algorithme
+
+1. Calcul du hash MD5 du `cluster_name` → 32 caractères hexadécimaux
+2. **Byte 4** : les 2 premiers caractères du hash, convertis en entier, modulo 64 (pour rester dans la plage VMware `00`–`3F`)
+3. **Byte 5** : les 2 caractères suivants du hash, convertis en entier
+4. **Byte 6** : index séquentiel — `0, 1, 2` pour les control planes, puis `3, 4, 5` pour les workers
+5. Préfixe fixe VMware : `00:50:56` (plage manuelle : `00:50:56:00:00:00` – `00:50:56:3F:FF:FF`)
+
+Format final : `00:50:56:<byte4>:<byte5>:<index>`
+
+### Exemple avec `cluster_name = "talos-dev"`
+
+```
+md5("talos-dev") = 73884459921d4b14a5ac97a2791d3f09
+
+byte4 = 0x73 (115) % 64 = 51 → 0x33
+byte5 = 0x88 (136)            → 0x88
+```
+
+| VM | Index | Adresse MAC |
+|---|---|---|
+| control-plane-0 | 0 | `00:50:56:33:88:00` |
+| control-plane-1 | 1 | `00:50:56:33:88:01` |
+| control-plane-2 | 2 | `00:50:56:33:88:02` |
+| worker-0 | 3 | `00:50:56:33:88:03` |
+| worker-1 | 4 | `00:50:56:33:88:04` |
+| worker-2 | 5 | `00:50:56:33:88:05` |
+
+Changer `cluster_name` produit un jeu de MACs entièrement différent, évitant les collisions entre clusters sur le même réseau vSphere.
+
 ## Compatibilité Terraform 1.15+
 
 Depuis Terraform 1.15, `terraform validate` valide le bloc `backend` même lorsqu'il est vide. Le bloc `backend "s3" {}` dans `providers.tf` est intentionnellement vide (la configuration est injectée au `init` via `backend.hcl`). Pour contourner ce changement, le playbook exécute `terraform init` explicitement avant de lancer plan et apply — sans passer par le module `community.general.terraform` qui appelait `validate` en premier.
