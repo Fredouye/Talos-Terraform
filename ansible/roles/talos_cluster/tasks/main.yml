@@ -31,6 +31,10 @@
   ansible.builtin.import_tasks: save_outputs.yml
   tags: [talos, tf_outputs]
 
+- name: Wait for cluster VIP to be reachable
+  ansible.builtin.import_tasks: wait_for_vip.yml
+  tags: [talos, vip_wait]
+
 - name: Deploy MetalLB
   ansible.builtin.import_tasks: deploy_metallb.yml
   tags: [talos, metallb]

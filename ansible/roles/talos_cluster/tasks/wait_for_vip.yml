@@ -1,0 +1,23 @@
+---
+# ==============================================================================
+# Wait for cluster VIP to be reachable before Helm deployments
+# ==============================================================================
+
+- name: Wait for VIP port 6443 to be reachable
+  ansible.builtin.wait_for:
+    host:    "{{ cluster_vip }}"
+    port:    6443
+    timeout: 300
+    delay:   5
+
+- name: Verify Kubernetes API server responds via VIP
+  kubernetes.core.k8s_cluster_info:
+    kubeconfig: "{{ ansible_env.HOME }}/.kube/talos-dev.yaml"
+  register: cluster_info
+  retries: 20
+  delay:   15
+  until:   cluster_info is not failed
+
+- name: Show API server version
+  ansible.builtin.debug:
+    msg: "Kubernetes API server reachable at {{ cluster_vip }}:6443 — version {{ cluster_info.version.server.kubernetes.gitVersion }}"
